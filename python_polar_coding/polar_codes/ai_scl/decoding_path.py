@@ -5,7 +5,9 @@ import torch.nn.functional as F
 from python_polar_coding.polar_codes.base.decoding_path import DecodingPathMixin
 from python_polar_coding.polar_codes.sc.decoder import SCDecoder
 
+
 class PathPruningNet(nn.Module):
+    """MLP for path pruning in AISCL."""
     def __init__(self, N):
         super().__init__()
         self.N = N
@@ -19,22 +21,17 @@ class PathPruningNet(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        x = self.bn1(x)
         x = self.dropout(x)
         x = F.relu(self.fc2(x))
-        x = self.bn2(x)
         x = self.dropout(x)
         x = F.relu(self.fc3(x))
-        # final projection from last hidden size
-        x = torch.sigmoid(self.fc4(x))
         return x
 
     def score(self, llr, bits):
-        """Score a decoding path based on LLR and current bits."""
+        """Score a single path."""
         llr = np.asarray(llr, dtype=np.float32)
         bits = np.asarray(bits, dtype=np.float32)
         N = len(llr)
-        # Pad bits to match LLR length
         bits_pad = np.pad(bits, (0, N - len(bits)), 'constant')
         X = np.concatenate([llr, bits_pad])[None, :]
         X = torch.tensor(X)
@@ -42,16 +39,14 @@ class PathPruningNet(nn.Module):
             score = self.forward(X).squeeze().item()
         return score
 
-    def build_input_vector(self, llr, bits):
-        """Build feature vector (llr + padded bits) for batch scoring.
+    def score_batch(self, X):
+        """Score a batch of input vectors."""
+        if isinstance(X, np.ndarray):
+            X = torch.from_numpy(X.astype(np.float32))
+        with torch.no_grad():
+            scores = self.forward(X).squeeze(-1)
+        return scores
 
-        Returns numpy array of shape (2*N,)
-        """
-        llr = np.asarray(llr, dtype=np.float32)
-        bits = np.asarray(bits, dtype=np.float32)
-        N = len(llr)
-        bits_pad = np.pad(bits, (0, N - len(bits)), 'constant')
-        return np.concatenate([llr, bits_pad])
 
 class AIPath(DecodingPathMixin, SCDecoder):
     """Decoding path of AI-based SCL decoder."""
@@ -60,10 +55,13 @@ class AIPath(DecodingPathMixin, SCDecoder):
         self.ai_model = ai_model
 
     def score_ai(self):
+        """Score path using AI model."""
         if self.ai_model is not None:
-            # Use the initial received LLR vector for scoring
-            llr_vec = self.intermediate_llr[0] if hasattr(self, 'intermediate_llr') else None
-            bits_vec = self.intermediate_bits[-1] if hasattr(self, 'intermediate_bits') else None
-            if llr_vec is not None and bits_vec is not None:
-                return self.ai_model.score(llr_vec, bits_vec)
+            try:
+                llr_vec = self.intermediate_llr[0]
+                bits_vec = self.intermediate_bits[-1]
+                if llr_vec is not None and bits_vec is not None:
+                    return self.ai_model.score(llr_vec, bits_vec)
+            except Exception:
+                pass
         return self._path_metric

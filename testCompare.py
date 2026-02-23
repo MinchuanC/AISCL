@@ -40,6 +40,12 @@ def run_compare(N=128, K=64, messages=1000, L=4, snr_range=None):
         # proceed with untrained model
         pass
 
+    # Ensure model is in eval mode to avoid BatchNorm requiring batch>1
+    try:
+        ai_model.eval()
+    except Exception:
+        pass
+
     aiscl_codec = AISCLPolarCodec(N=N, K=K, design_snr=0.0, L=L, ai_model=ai_model)
     bpsk = SimpleBPSKModulationAWGN(fec_rate=K / N)
 
@@ -60,8 +66,6 @@ def run_compare(N=128, K=64, messages=1000, L=4, snr_range=None):
 
         times_scl = []
         times_aiscl = []
-
-        # instrumentation removed: do not collect op counters
 
         for _ in range(messages):
             msg = generate_binary_message(size=K)
@@ -108,7 +112,7 @@ def run_compare(N=128, K=64, messages=1000, L=4, snr_range=None):
         ber_scl_val = ber_scl / total_bits
         ber_aiscl_val = ber_aiscl / total_bits
         print(f"{snr:5.1f}  | {ber_scl_val:.6e} | {ber_aiscl_val:.6e} | {avg_time_scl:8.3f} | {avg_time_aiscl:8.3f}")
-        # append CSV row (no op counters)
+        # write into the csv file
         with open(csv_path, 'a') as fh:
             fh.write(f"{snr},{ber_scl_val:.4f},{ber_aiscl_val:.4f},{avg_time_scl:.6f},{avg_time_aiscl:.6f}\n")
 
